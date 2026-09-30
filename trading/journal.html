@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Journal de trading</title>
+<style>
+  :root { --bg:#f6f7f9; --card:#fff; --text:#1c2230; --muted:#6b7385; --line:#e2e5ec; --acc:#2456d6; --win:#127a45; --loss:#c0392b; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#12151c; --card:#1b202b; --text:#e8ebf2; --muted:#98a0b3; --line:#2b3242; --acc:#6f95ff; --win:#3ec585; --loss:#ff7a6b; }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; padding:16px; background:var(--bg); color:var(--text); font:15px/1.45 system-ui, sans-serif; }
+  main { max-width:960px; margin:0 auto; display:grid; gap:16px; }
+  h1 { font-size:1.3rem; margin:0; }
+  h2 { font-size:1rem; margin:0 0 10px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:14px; }
+  .grid { display:grid; gap:10px; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); }
+  label { display:grid; gap:4px; font-size:.8rem; color:var(--muted); }
+  input, select, textarea { font:inherit; padding:7px 8px; border:1px solid var(--line); border-radius:6px; background:var(--bg); color:var(--text); width:100%; }
+  button { font:inherit; padding:8px 14px; border:0; border-radius:6px; background:var(--acc); color:#fff; cursor:pointer; }
+  button.ghost { background:transparent; color:var(--muted); border:1px solid var(--line); }
+  .stats { display:grid; gap:10px; grid-template-columns:repeat(auto-fit,minmax(120px,1fr)); }
+  .stat { padding:10px; border:1px solid var(--line); border-radius:8px; }
+  .stat b { display:block; font-size:1.2rem; }
+  .stat span { font-size:.75rem; color:var(--muted); }
+  .win { color:var(--win); } .loss { color:var(--loss); }
+  .result { margin-top:10px; font-size:.95rem; }
+  .scroll { overflow-x:auto; }
+  table { width:100%; border-collapse:collapse; font-size:.85rem; }
+  th, td { text-align:left; padding:6px 8px; border-bottom:1px solid var(--line); white-space:nowrap; }
+  th { color:var(--muted); font-weight:600; }
+  .note { font-size:.8rem; color:var(--muted); }
+</style>
+</head>
+<body>
+<main>
+  <h1>Journal de trading <span class="note">— Forex &amp; Or</span></h1>
+
+  <section class="card">
+    <h2>1. Calculateur de taille de position</h2>
+    <div class="grid">
+      <label>Capital du compte<input id="c-cap" type="number" value="1000" step="any"></label>
+      <label>Risque par trade (%)<input id="c-risk" type="number" value="1" step="any"></label>
+      <label>Prix d'entrée<input id="c-entry" type="number" step="any"></label>
+      <label>Stop-loss<input id="c-sl" type="number" step="any"></label>
+      <label>Take-profit<input id="c-tp" type="number" step="any"></label>
+      <label>Valeur d'1 point pour 1 lot
+        <select id="c-inst">
+          <option value="100">Or XAUUSD (1 $ = 100 $/lot)</option>
+          <option value="100000">Forex paire en USD (1.0 = 100 000 $/lot)</option>
+        </select>
+      </label>
+    </div>
+    <div class="result" id="c-out">Renseignez entrée et stop-loss.</div>
+    <p class="note">Le calcul suppose un compte en USD. Vérifiez la taille de contrat de votre courtier.</p>
+  </section>
+
+  <section class="card">
+    <h2>2. Ajouter un trade</h2>
+    <form id="f" class="grid">
+      <label>Date<input name="date" type="date" required></label>
+      <label>Actif<input name="asset" value="XAUUSD" required></label>
+      <label>Sens<select name="side"><option>Achat</option><option>Vente</option></select></label>
+      <label>Entrée<input name="entry" type="number" step="any" required></label>
+      <label>Stop-loss<input name="sl" type="number" step="any" required></label>
+      <label>Sortie<input name="exit" type="number" step="any" required></label>
+      <label>Lots<input name="lots" type="number" step="any" value="0.01" required></label>
+      <label>Valeur/lot (100 or, 100000 forex)<input name="mult" type="number" step="any" value="100" required></label>
+      <label style="grid-column:1/-1">Raison d'entrée / erreur / leçon<textarea name="note" rows="2"></textarea></label>
+      <div><button type="submit">Ajouter</button> <button type="button" class="ghost" id="clear">Tout effacer</button></div>
+    </form>
+  </section>
+
+  <section class="card">
+    <h2>3. Statistiques</h2>
+    <div class="stats" id="stats"></div>
+  </section>
+
+  <section class="card">
+    <h2>4. Historique</h2>
+    <div class="scroll"><table>
+      <thead><tr><th>Date</th><th>Actif</th><th>Sens</th><th>Entrée</th><th>SL</th><th>Sortie</th><th>Lots</th><th>P&amp;L</th><th>R</th><th>Note</th><th></th></tr></thead>
+      <tbody id="rows"></tbody>
+    </table></div>
+    <p class="note">R = résultat exprimé en multiples du risque pris (1R = ce que vous risquiez). Données enregistrées dans ce navigateur uniquement.</p>
+  </section>
+</main>
+
+<script>
+const KEY = 'trading-journal-v1';
+const $ = id => document.getElementById(id);
+const fmt = n => (n >= 0 ? '+' : '') + n.toFixed(2);
+let trades = [];
+try { trades = JSON.parse(localStorage.getItem(KEY)) || []; } catch (e) {}
+const save = () => { try { localStorage.setItem(KEY, JSON.stringify(trades)); } catch (e) {} };
+
+// Calculateur
+function calc() {
+  const cap = +$('c-cap').value, risk = +$('c-risk').value, e = +$('c-entry').value,
+        sl = +$('c-sl').value, tp = +$('c-tp').value, mult = +$('c-inst').value;
+  const dist = Math.abs(e - sl);
+  if (!e || !sl || !dist) { $('c-out').textContent = 'Renseignez entrée et stop-loss.'; return; }
+  const riskAmt = cap * risk / 100;
+  const lots = riskAmt / (dist * mult);
+  let html = `Risque : <b>${riskAmt.toFixed(2)} $</b> · Distance stop : <b>${dist.toFixed(2)}</b> · Taille : <b>${lots.toFixed(2)} lot</b>`;
+  if (tp) html += ` · Ratio R:R = <b>${(Math.abs(tp - e) / dist).toFixed(2)}</b>`;
+  $('c-out').innerHTML = html;
+}
+['c-cap','c-risk','c-entry','c-sl','c-tp','c-inst'].forEach(id => $(id).addEventListener('input', calc));
+
+// Trades
+function pnl(t) { return (t.side === 'Achat' ? t.exit - t.entry : t.entry - t.exit) * t.lots * t.mult; }
+function rMult(t) {
+  const risk = Math.abs(t.entry - t.sl) * t.lots * t.mult;
+  return risk ? pnl(t) / risk : 0;
+}
+
+function render() {
+  const tb = $('rows'); tb.innerHTML = '';
+  trades.forEach((t, i) => {
+    const p = pnl(t), r = rMult(t), tr = document.createElement('tr');
+    const cells = [t.date, t.asset, t.side, t.entry, t.sl, t.exit, t.lots];
+    cells.forEach(v => { const td = document.createElement('td'); td.textContent = v; tr.appendChild(td); });
+    const tp = document.createElement('td'); tp.textContent = fmt(p) + ' $'; tp.className = p >= 0 ? 'win' : 'loss'; tr.appendChild(tp);
+    const tr2 = document.createElement('td'); tr2.textContent = fmt(r) + 'R'; tr2.className = r >= 0 ? 'win' : 'loss'; tr.appendChild(tr2);
+    const tn = document.createElement('td'); tn.textContent = t.note || ''; tr.appendChild(tn);
+    const td = document.createElement('td'); const b = document.createElement('button');
+    b.textContent = '✕'; b.className = 'ghost'; b.onclick = () => { trades.splice(i, 1); save(); render(); };
+    td.appendChild(b); tr.appendChild(td); tb.appendChild(tr);
+  });
+
+  const n = trades.length, ps = trades.map(pnl), rs = trades.map(rMult);
+  const wins = ps.filter(p => p > 0), losses = ps.filter(p => p < 0);
+  const total = ps.reduce((a, b) => a + b, 0);
+  const winRate = n ? wins.length / n * 100 : 0;
+  const gw = wins.reduce((a, b) => a + b, 0), gl = Math.abs(losses.reduce((a, b) => a + b, 0));
+  const pf = gl ? gw / gl : (gw ? Infinity : 0);
+  const expR = n ? rs.reduce((a, b) => a + b, 0) / n : 0;
+  let eq = 0, peak = 0, dd = 0;
+  ps.forEach(p => { eq += p; peak = Math.max(peak, eq); dd = Math.max(dd, peak - eq); });
+  const items = [
+    ['Trades', n], ['P&L total', fmt(total) + ' $', total >= 0 ? 'win' : 'loss'],
+    ['Taux de réussite', winRate.toFixed(0) + ' %'], ['Profit factor', pf === Infinity ? '∞' : pf.toFixed(2)],
+    ['Espérance', fmt(expR) + ' R', expR >= 0 ? 'win' : 'loss'], ['Drawdown max', dd.toFixed(2) + ' $']
+  ];
+  $('stats').innerHTML = '';
+  items.forEach(([label, val, cls]) => {
+    const d = document.createElement('div'); d.className = 'stat';
+    d.innerHTML = '<b></b><span></span>'; d.firstChild.textContent = val; if (cls) d.firstChild.className = cls;
+    d.lastChild.textContent = label; $('stats').appendChild(d);
+  });
+}
+
+$('f').addEventListener('submit', ev => {
+  ev.preventDefault();
+  const d = Object.fromEntries(new FormData(ev.target));
+  ['entry','sl','exit','lots','mult'].forEach(k => d[k] = +d[k]);
+  trades.push(d); save(); render(); ev.target.reset();
+  ev.target.elements.asset.value = d.asset; ev.target.elements.mult.value = d.mult;
+});
+$('clear').onclick = () => { if (confirm('Effacer tous les trades ?')) { trades = []; save(); render(); } };
+$('f').elements.date.valueAsDate = new Date();
+render();
+</script>
+</body>
+</html>
