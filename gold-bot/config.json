@@ -1,0 +1,6 @@
+{
+  "_note": "PLACEHOLDER : à remplacer par la stratégie gagnante HORS-ÉCHANTILLON de results.md",
+  "symbol": "XAUUSD", "timeframe_min": 60, "magic": 424242,
+  "strategy": "donchian", "params": {"n": 20, "trend": 200},
+  "sl_atr": 1.5, "tp_atr": 3.0, "risk_per_trade": 0.005
+}
